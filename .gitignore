@@ -4,3 +4,4 @@ __pycache__/
 abstaincheck/data/
 .pytest_cache/
 local_store.json
+.release_cache/

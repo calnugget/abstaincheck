@@ -130,10 +130,10 @@ def test_same_seed_same_questions():
     assert ids(a) == ids(b)
 
 
-def test_control_answer_key_not_shown():
+def test_missed_safe_questions_show_the_right_answer():
     s = Service(MemoryStore(), BANK)
     t = s.start_test("quick", "m")
     rep = s.submit(t["test_id"], [{"handle": q["handle"], "answer": "E", "confidence": 0.5}
                                   for q in t["questions"]])
     ctrl = [m for m in rep["missed"] if m["kind"] == "control"]
-    assert ctrl and all(m["correct_answer"] is None for m in ctrl)
+    assert ctrl and all(m["correct_answer"] in m["choices"] for m in ctrl)

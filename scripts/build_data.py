@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Build AbstainCheck's question bank and baselines from the AdverseMed-500 research repo.
+"""Build AbstainCheck's question bank and baselines from the public AdverseMed-500 release.
 
-    python3 scripts/build_data.py --research /path/to/dyuthi/research
+    python3 scripts/build_data.py                      # downloads the latest Zenodo release
+    python3 scripts/build_data.py --release DIR        # an already extracted release
+
+The release is the archived replication package for the AdverseMed-500 paper (Zenodo concept
+DOI 10.5281/zenodo.21961770). Every file used is checked against the release's SHA256SUMS.
+The download is an anonymous GET: no account, key or identifying information is sent.
 
 Writes three files into abstaincheck/data/ (gitignored, baked into the deploy image):
 
   traps.jsonl      AdverseMed-500 v1.2, all 500 items. The correct behaviour on every one
                    is to refuse (FLAG). The 25 items marked `contestable` are kept in the file
                    but never served in a test.
-  controls.jsonl   The 285 answerable twins. The correct behaviour is to pick the keyed
-                   letter. These keys are NOT public anywhere else, which is why data/ is
-                   not committed.
+  controls.jsonl   The 285 answerable twins, with their keyed letters (public in the release).
   baselines.json   Per-question answers of the five models from the paper, so a new model
                    can be compared with them on exactly the questions it was given.
 
@@ -19,11 +22,17 @@ answering once. GPT-5.4-mini has no temperature_0 control run, so it uses self_c
 both arms; the paper reports the same pairing.
 """
 import argparse
+import hashlib
+import io
 import json
 import pathlib
+import tarfile
+import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent.parent
 OUT = HERE / "abstaincheck" / "data"
+CACHE = HERE / ".release_cache"
+CONCEPT_RECORD = "https://zenodo.org/api/records/21961770"   # redirects to the latest version
 
 MODELS = {
     # key in paper files       display name           method used on both arms
@@ -54,15 +63,50 @@ def answers(path):
     return out
 
 
+def _get(url):
+    # anonymous request; urllib's default User-Agent carries nothing identifying
+    with urllib.request.urlopen(url, timeout=120) as r:
+        return r.read()
+
+
+def download():
+    """Fetch and extract the latest release into .release_cache/. Returns its directory."""
+    rec = json.loads(_get(CONCEPT_RECORD))
+    version = rec["metadata"]["version"]
+    (f,) = [f for f in rec["files"] if f["key"].endswith(".tar.gz")]
+    root = CACHE / f["key"].removesuffix(".tar.gz")
+    if not root.exists():
+        blob = _get(f["links"]["self"])
+        want = f.get("checksum", "")
+        if want.startswith("md5:"):
+            assert hashlib.md5(blob).hexdigest() == want[4:], "download corrupted"
+        CACHE.mkdir(exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(blob)) as t:
+            t.extractall(CACHE, filter="data")
+    print(f"release {version}: {root}")
+    return root
+
+
+def checked(root, rel):
+    """Path of a release file, after checking it against the release's SHA256SUMS."""
+    sums = {}
+    for line in (root / "SHA256SUMS").read_text().splitlines():
+        h, name = line.split(maxsplit=1)
+        sums[name.strip().removeprefix("./")] = h
+    path = root / rel
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == sums[rel], f"checksum mismatch: {rel}"
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--research", required=True)
+    ap.add_argument("--release", help="an extracted AdverseMed-500 release; default: download it")
     a = ap.parse_args()
-    p1 = pathlib.Path(a.research) / "papers" / "paper-1-medllm-calibration"
+    root = pathlib.Path(a.release) if a.release else download()
     OUT.mkdir(parents=True, exist_ok=True)
 
     traps = []
-    for r in jsonl(p1 / "datasets" / "adversemed_500_v1.2.jsonl"):
+    for r in jsonl(checked(root, "benchmark/adversemed_500_v1.2.jsonl")):
         assert r["ground_truth"] == "abstain"
         v = r.get("verification") or {}
         traps.append({
@@ -74,7 +118,7 @@ def main():
             "sources": sorted({u for u in (v.get("reference_urls") or []) if u}),
         })
     controls = []
-    for r in jsonl(p1 / "datasets" / "adversemed_500_control_v1.jsonl"):
+    for r in jsonl(checked(root, "benchmark/adversemed_500_control_v1.jsonl")):
         assert r["ground_truth"] in r["choices"]
         v = r.get("verification") or {}
         controls.append({
@@ -88,8 +132,8 @@ def main():
 
     baselines = {}
     for key, (name, method) in MODELS.items():
-        par = answers(p1 / "inference_outputs" / "adversemed_500_final" / f"{key}__{method}.jsonl")
-        ctl = answers(p1 / "inference_outputs" / "adversemed_control" / f"{key}__{method}.jsonl")
+        par = answers(checked(root, f"inference_outputs/adversemed_500_final/{key}__{method}.jsonl"))
+        ctl = answers(checked(root, f"inference_outputs/adversemed_control/{key}__{method}.jsonl"))
         assert len(par) >= 450 and len(ctl) >= 256, (key, len(par), len(ctl))
         baselines[key] = {"name": name, "method": method, "answers": {**par, **ctl}}
 

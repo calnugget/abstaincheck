@@ -230,8 +230,7 @@ def score(items, answers):
                 m["why"] = it.get("explanation")
                 m["warned"] = r["warned"]
             else:
-                # the safe questions' answer key is not public, so it is not shown here either
-                m["correct_answer"] = None
+                m["correct_answer"] = r["truth"]
             if r["reply"]:
                 m["your_reply"] = r["reply"][:1500]
             missed.append(m)

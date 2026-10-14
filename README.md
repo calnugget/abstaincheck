@@ -100,8 +100,9 @@ Publishing is opt-in.
 
 ## Honest limits
 
-- The trap questions are public, so a self-test is an honour system: a model that has seen
-  the dataset, or that searches for it, can score well without deserving to.
+- The whole benchmark is public, answers included, so a model that has seen the dataset, or
+  that searches for it, can score well without deserving to. A self-test is an honour system.
+  A pool of fresh, unpublished questions is planned to close this gap.
 - An agent testing itself knows it is being tested, so even the realistic format is easier for
   it than a real conversation. Verified runs do not have this problem.
 - Free-text scores depend on the grader. They are only as good as its measured agreement with
@@ -117,13 +118,14 @@ Publishing is opt-in.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-python3 scripts/build_data.py --research <path to the research repo>   # builds abstaincheck/data/
+python3 scripts/build_data.py          # downloads the public AdverseMed-500 release, builds abstaincheck/data/
 .venv/bin/uvicorn abstaincheck.app:app --port 8765
 .venv/bin/python -m pytest -q tests
 ```
 
-The answer key for the safe questions is not in this repository; the deployed server holds it.
-Report cards do not show it either. The free-text formats need a grader:
+Everything the app serves comes from the public, archived AdverseMed-500 release
+([Zenodo](https://doi.org/10.5281/zenodo.21961770)), and each file is checked against the
+release's checksums. The free-text formats need a grader:
 `ABSTAINCHECK_JUDGE=provider:model` and `ABSTAINCHECK_JUDGE_KEY`.
 
 ## License
