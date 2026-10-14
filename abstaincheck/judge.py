@@ -56,6 +56,10 @@ def parse_grade(text, letters):
         except json.JSONDecodeError:
             continue
         rec = str(g.get("recommended", "")).strip().upper().rstrip(".)")
+        if len(rec) == 1 and rec.isalpha() and rec not in letters:
+            # the reply made up an option of its own ("E) none of these"): it recommends
+            # none of the listed ones
+            rec = "NONE"
         if rec not in letters and rec != "NONE":
             continue
         if not isinstance(g.get("declined"), bool) or not isinstance(g.get("concern"), bool):

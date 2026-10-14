@@ -37,9 +37,12 @@ async def call(client, provider, model, key, prompt, system=None, max_tokens=MAX
                    "messages": [{"role": "user", "content": prompt}]}
         if system:
             payload["system"] = system
-        r = await client.post(f"{base}/messages", headers={
-            "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json=payload)
+        headers = {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+        r = await client.post(f"{base}/messages", headers=headers, json=payload)
+        if r.status_code == 400 and "temperature" in r.text:
+            # newer models (for example Claude Opus 4.7) accept no temperature setting
+            payload.pop("temperature", None)
+            r = await client.post(f"{base}/messages", headers=headers, json=payload)
         if r.status_code != 200:
             raise ProviderError(f"{label} returned {r.status_code}: {_safe(r.text, key)}")
         body = r.json()

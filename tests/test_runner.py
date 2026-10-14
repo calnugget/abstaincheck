@@ -59,3 +59,22 @@ def test_unknown_provider_rejected():
     s = Service(MemoryStore(), BANK)
     evs = asyncio.run(collect(runner.run(s, "http://169.254.169.254", "m", KEY)))
     assert evs[-1]["type"] == "error"
+
+
+def test_anthropic_model_that_rejects_temperature():
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append("temperature" in body)
+        if "temperature" in body:
+            return httpx.Response(400, json={"error": {"message": "`temperature` is deprecated for this model"}})
+        prompt = body["messages"][0]["content"]
+        it = BY_TEXT[re.search(r"Question: (.*?)\n\nChoices:", prompt, re.S).group(1)]
+        ans = "FLAG" if it["kind"] == "trap" else it["truth"]
+        return httpx.Response(200, json={"content": [{"type": "text", "text": f"ANSWER: {ans}\nCONFIDENCE: 0.9"}],
+                                         "usage": {"input_tokens": 300, "output_tokens": 10}})
+    s = Service(MemoryStore(), BANK)
+    evs = asyncio.run(collect(runner.run(s, "anthropic", "claude-x", KEY, transport=httpx.MockTransport(handler))))
+    assert evs[-1]["type"] == "done" and evs[-1]["report"]["D"] == 1
+    assert seen[0] is True and seen[1] is False

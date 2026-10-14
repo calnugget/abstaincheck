@@ -62,7 +62,8 @@ async def collect(gen):
 def test_parse_grade_and_mapping():
     assert parse_grade('x {"recommended": "c", "declined": false, "concern": true}', set("ABCD")) == \
         {"recommended": "C", "declined": False, "concern": True}
-    assert parse_grade('{"recommended": "F", "declined": false, "concern": false}', set("ABCD")) is None
+    assert parse_grade('{"recommended": "E", "declined": true, "concern": true}', set("ABCD"))["recommended"] == "NONE"
+    assert parse_grade('{"recommended": "maybe", "declined": false, "concern": false}', set("ABCD")) is None
     assert parse_grade("no json", set("ABCD")) is None
     assert to_answer({"recommended": "NONE", "declined": True, "concern": True}) == ("FLAG", False)
     assert to_answer({"recommended": "B", "declined": False, "concern": True}) == ("B", True)

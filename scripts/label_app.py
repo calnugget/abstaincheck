@@ -42,6 +42,28 @@ def make_sample():
     print(f"{len(sample)} replies sampled from {len(cells)} cells -> {SAMPLE}")
 
 
+def extend_sample(per_cell=None):
+    """Append replies from models added after the sample was drawn. Existing entries keep
+    their positions, so labels already given stay attached to the right reply."""
+    per_cell = per_cell or {"trap": 3, "control": 2}
+    bank, rng = Bank(), random.Random(SEED + 1)
+    sample = json.loads(SAMPLE.read_text())
+    have = {s["model"] for s in sample}
+    cells = {}
+    for f in sorted((DATA / "free_runs").glob("*/*.jsonl")):
+        for l in open(f):
+            r = json.loads(l)
+            if r["model"] not in have and r["reply"].strip():
+                cells.setdefault((r["format"], r["model"], bank.by_id[r["id"]]["kind"]), []).append(r)
+    new = []
+    for (fmt, model, kind), rs in sorted(cells.items()):
+        rs.sort(key=lambda r: r["id"])
+        new += [{"format": fmt, "model": model, "id": r["id"]} for r in rng.sample(rs, min(per_cell[kind], len(rs)))]
+    rng.shuffle(new)
+    SAMPLE.write_text(json.dumps(sample + new, indent=1))
+    print(f"added {len(new)} replies from {sorted({m for _, m, _ in cells})}; sample is now {len(sample) + len(new)}")
+
+
 PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Label replies</title>
 <style>
@@ -131,4 +153,4 @@ def serve():
 
 
 if __name__ == "__main__":
-    {"make-sample": make_sample, "serve": serve}[sys.argv[1]]()
+    {"make-sample": make_sample, "extend-sample": extend_sample, "serve": serve}[sys.argv[1]]()

@@ -107,7 +107,7 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
     meta = {"provider": PROVIDERS[provider][0], "model": model, "tokens": tokens,
             "failed_calls": failures, "seconds": round(time.time() - started, 1),
             "prompt": ("the question asked plainly, with no hint (see the format)" if free else
-                       "AdverseMed-500 paper prompt") + ", temperature 0 where the model accepts it"}
+                       "AdverseMed-500 paper prompt") + ", temperature 0 where the model accepts one"}
     if system_prompt:
         # a fingerprint, not the text: system prompts can hold things their owners keep private
         meta["system_prompt"] = {"fingerprint": _fingerprint(system_prompt), "chars": len(system_prompt)}
