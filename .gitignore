@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+abstaincheck/data/
+.pytest_cache/
+local_store.json
