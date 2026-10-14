@@ -5,3 +5,4 @@ abstaincheck/data/
 .pytest_cache/
 local_store.json
 .release_cache/
+labels_to_fill.md
