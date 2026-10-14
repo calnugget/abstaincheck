@@ -1,73 +1,36 @@
-"""Verified runs: AbstainCheck sends each question to the user's model with the paper's prompt.
+"""Verified runs: AbstainCheck sends each question to the user's model.
 
 The user's API key is used for the duration of the run only. It is never stored, logged or
 returned, and it is not included in error messages. Requests go only to the provider hosts
-listed below, so the server cannot be pointed at arbitrary addresses.
+in providers.py, so the server cannot be pointed at arbitrary addresses.
+
+In the standard format each question goes out with the paper's prompt and the two-line answer
+is read directly. In the free-text formats the question goes out as a person would ask it, and
+the server's grader reads the reply afterwards.
 """
 import asyncio
+import hashlib
 import time
 
 import httpx
 
 from .bank import render_prompt
+from .modes import FREE_TEXT, render_free
+from .providers import PROVIDERS, ProviderError, call, client
 from .scoring import parse_response
 
-PROVIDERS = {
-    # name: (label, kind, base url)
-    "openai":     ("OpenAI", "openai", "https://api.openai.com/v1"),
-    "anthropic":  ("Anthropic", "anthropic", "https://api.anthropic.com/v1"),
-    "google":     ("Google Gemini", "openai", "https://generativelanguage.googleapis.com/v1beta/openai"),
-    "deepseek":   ("DeepSeek", "openai", "https://api.deepseek.com/v1"),
-    "openrouter": ("OpenRouter (hundreds of models)", "openai", "https://openrouter.ai/api/v1"),
-    "mistral":    ("Mistral", "openai", "https://api.mistral.ai/v1"),
-    "groq":       ("Groq", "openai", "https://api.groq.com/openai/v1"),
-    "together":   ("Together AI", "openai", "https://api.together.xyz/v1"),
-    "xai":        ("xAI", "openai", "https://api.x.ai/v1"),
-}
-
 CONCURRENCY = 6
-TIMEOUT = 120.0
-MAX_TOKENS = 2048   # reasoning models spend output tokens thinking before the two answer lines
+MAX_SYSTEM_PROMPT = 8000
+
+__all__ = ["PROVIDERS", "run"]
 
 
-class ProviderError(Exception):
-    """An error safe to show the user: never contains the key."""
-
-
-def _safe(msg, key):
-    msg = str(msg)[:300]
-    return msg.replace(key, "[key]") if key else msg
-
-
-async def _call(client, provider, model, key, prompt):
-    label, kind, base = PROVIDERS[provider]
-    if kind == "anthropic":
-        r = await client.post(f"{base}/messages", headers={
-            "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": model, "max_tokens": MAX_TOKENS, "temperature": 0,
-                  "messages": [{"role": "user", "content": prompt}]})
-        if r.status_code != 200:
-            raise ProviderError(f"{label} returned {r.status_code}: {_safe(r.text, key)}")
-        body = r.json()
-        return "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"), body.get("usage", {})
-    payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
-               "temperature": 0, "max_tokens": MAX_TOKENS}
-    headers = {"Authorization": f"Bearer {key}", "content-type": "application/json"}
-    r = await client.post(f"{base}/chat/completions", headers=headers, json=payload)
-    if r.status_code == 400 and ("temperature" in r.text or "max_tokens" in r.text):
-        # some reasoning models accept neither a temperature nor max_tokens
-        payload.pop("temperature", None)
-        payload["max_completion_tokens"] = payload.pop("max_tokens")
-        r = await client.post(f"{base}/chat/completions", headers=headers, json=payload)
-    if r.status_code != 200:
-        raise ProviderError(f"{label} returned {r.status_code}: {_safe(r.text, key)}")
-    body = r.json()
-    msg = ((body.get("choices") or [{}])[0].get("message") or {})
-    return msg.get("content") or "", body.get("usage", {})
+def _fingerprint(text):
+    return hashlib.sha256(text.encode()).hexdigest()[:10]
 
 
 async def run(service, provider, model, key, size="quick", publish=False, display_name=None,
-              transport=None):
+              transport=None, fmt="standard", system_prompt="", seed=None):
     """Async generator of progress events; the last one has type 'done' or 'error'."""
     if provider not in PROVIDERS:
         yield {"type": "error", "message": f"Unknown provider. Choose one of {sorted(PROVIDERS)}."}
@@ -75,21 +38,34 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
     if not key or not model:
         yield {"type": "error", "message": "A model name and an API key are both required."}
         return
-    test = service.start_test(size=size, model_name=display_name or model, mode="api_run")
+    system_prompt = (system_prompt or "").strip()
+    if len(system_prompt) > MAX_SYSTEM_PROMPT:
+        yield {"type": "error", "message": f"The system prompt is longer than {MAX_SYSTEM_PROMPT} characters."}
+        return
+    free = fmt in FREE_TEXT
+    try:
+        test = service.start_test(size=size, model_name=display_name or model, mode="api_run",
+                                  fmt=fmt, seed=seed)
+    except ValueError as e:
+        yield {"type": "error", "message": str(e)}
+        return
     qs = test["questions"]
     hmap = service.store.get("tests", test["test_id"])["handles"]
-    yield {"type": "start", "test_id": test["test_id"], "n_questions": len(qs)}
+    yield {"type": "start", "test_id": test["test_id"], "n_questions": len(qs), "format": fmt}
 
-    answers, done, tokens, failures = [], 0, 0, 0
+    def prompt_for(q):
+        it = service.bank.by_id[hmap[q["handle"]]]
+        return render_free(it, fmt) if free else render_prompt(it)
+
+    replies, done, tokens, failures = {}, 0, 0, 0
     sem = asyncio.Semaphore(CONCURRENCY)
     started = time.time()
 
-    async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as client:
+    async with client(transport) as c:
         # one probe call first, so a bad key or model name fails fast and cheaply
         first = qs[0]
         try:
-            text, usage = await _call(client, provider, model, key,
-                                      render_prompt(service.bank.by_id[hmap[first["handle"]]]))
+            text, usage = await call(c, provider, model, key, prompt_for(first), system=system_prompt or None)
         except ProviderError as e:
             yield {"type": "error", "message": str(e)}
             return
@@ -101,8 +77,8 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
             async with sem:
                 for attempt in range(3):
                     try:
-                        return q, await _call(client, provider, model, key,
-                                              render_prompt(service.bank.by_id[hmap[q["handle"]]]))
+                        return q, await call(c, provider, model, key, prompt_for(q),
+                                             system=system_prompt or None)
                     except (ProviderError, httpx.HTTPError) as e:
                         if attempt == 2:
                             return q, e
@@ -110,9 +86,7 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
 
         def take(q, text, usage):
             nonlocal tokens
-            ans, conf = parse_response(text)
-            answers.append({"handle": q["handle"], "answer": ans or ("INVALID" if text.strip() else None),
-                            "confidence": conf})
+            replies[q["handle"]] = text
             tokens += int(usage.get("total_tokens") or
                           (usage.get("input_tokens", 0) + usage.get("output_tokens", 0)) or 0)
 
@@ -123,7 +97,7 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
             q, res = await fut
             if isinstance(res, Exception):
                 failures += 1
-                answers.append({"handle": q["handle"], "answer": None, "confidence": None})
+                replies[q["handle"]] = None
             else:
                 take(q, *res)
             done += 1
@@ -132,8 +106,27 @@ async def run(service, provider, model, key, size="quick", publish=False, displa
 
     meta = {"provider": PROVIDERS[provider][0], "model": model, "tokens": tokens,
             "failed_calls": failures, "seconds": round(time.time() - started, 1),
-            "prompt": "AdverseMed-500 paper prompt, temperature 0 where the model accepts it"}
-    rep = service.submit(test["test_id"], answers, model_name=display_name or model,
-                         publish=publish, tier="verified", run_meta=meta)
+            "prompt": ("the question asked plainly, with no hint (see the format)" if free else
+                       "AdverseMed-500 paper prompt") + ", temperature 0 where the model accepts it"}
+    if system_prompt:
+        # a fingerprint, not the text: system prompts can hold things their owners keep private
+        meta["system_prompt"] = {"fingerprint": _fingerprint(system_prompt), "chars": len(system_prompt)}
+    name = display_name or model
+    if free:
+        yield {"type": "grading", "message": "Grading the replies…"}
+        rep = await service.submit_replies(
+            test["test_id"], [{"handle": h, "reply": r or ""} for h, r in replies.items()],
+            model_name=name, publish=publish, tier="verified", run_meta=meta)
+    else:
+        answers = []
+        for h, text in replies.items():
+            if text is None:
+                answers.append({"handle": h, "answer": None, "confidence": None})
+                continue
+            ans, conf = parse_response(text)
+            answers.append({"handle": h, "answer": ans or ("INVALID" if text.strip() else None),
+                            "confidence": conf})
+        rep = service.submit(test["test_id"], answers, model_name=name, publish=publish,
+                             tier="verified", run_meta=meta)
     rep.pop("missed", None)
     yield {"type": "done", "result_id": rep["result_id"], "report": rep}

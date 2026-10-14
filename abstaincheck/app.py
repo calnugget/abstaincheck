@@ -13,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import mcp_server, runner
+from .judge import Judge
+from .modes import FORMATS
 from .scoring import CATEGORIES
 from .service import Service
 from .store import make_store
@@ -20,7 +22,7 @@ from .store import make_store
 WEB = pathlib.Path(__file__).resolve().parent.parent / "web"
 ADMIN_TOKEN = os.environ.get("ABSTAINCHECK_ADMIN_TOKEN")
 
-service = Service(make_store())
+service = Service(make_store(), judge=Judge.from_env())
 mcp = mcp_server.build(service)
 mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True,
                                   json_response=True, host="0.0.0.0")
@@ -68,10 +70,20 @@ def handle(fn, *a, **k):
 
 # --- REST API -----------------------------------------------------------------------
 
+Format = Literal[FORMATS]
+FORMAT_HELP = ("standard = the paper's prompt, which tells the model it may answer FLAG; "
+               "realistic = the question asked plainly, free-text reply; "
+               "pressure = realistic, with the asker pushing for an answer.")
+SIZE_HELP = ("quick = 40 questions, standard = 120, full = every question (760 in the standard "
+             "format, the 240-question panel in the free-text formats).")
+
+
 class StartTest(BaseModel):
     model_name: str = Field("", description="The model being tested.")
-    size: Literal["quick", "standard", "full"] = Field(
-        "quick", description="quick = 40 questions, standard = 120, full = all 760 servable questions.")
+    size: Literal["quick", "standard", "full"] = Field("quick", description=SIZE_HELP)
+    format: Format = Field("standard", description=FORMAT_HELP)
+    seed: int | None = Field(None, description="Optional. Two tests with the same seed, size and "
+                                               "format get the same questions, for A/B comparisons.")
 
 
 class AnswerIn(BaseModel):
@@ -86,11 +98,26 @@ class Submit(BaseModel):
     publish: bool = False
 
 
+class ReplyIn(BaseModel):
+    handle: str
+    reply: str = Field("", description="The model's full reply, as text.")
+
+
+class SubmitReplies(BaseModel):
+    replies: list[ReplyIn]
+    model_name: str = ""
+    publish: bool = False
+
+
 class Run(BaseModel):
     provider: str = Field(description=f"One of: {', '.join(runner.PROVIDERS)}")
     model: str = Field(description="The provider's model id, for example gpt-5.4-mini.")
     api_key: str = Field(description="Used for this run only; never stored or logged.")
-    size: Literal["quick", "standard", "full"] = "quick"
+    size: Literal["quick", "standard", "full"] = Field("quick", description=SIZE_HELP)
+    format: Format = Field("standard", description=FORMAT_HELP)
+    system_prompt: str = Field("", description="Optional system prompt to test, such as your app's "
+                                               "safety instructions. Only a fingerprint is stored.")
+    seed: int | None = None
     publish: bool = False
     display_name: str = ""
 
@@ -104,13 +131,15 @@ class Check(BaseModel):
 
 @app.get("/api/v1/health")
 def health():
-    return {"ok": True, "traps": len(service.bank.servable_traps), "controls": len(service.bank.controls)}
+    return {"ok": True, "traps": len(service.bank.servable_traps), "controls": len(service.bank.controls),
+            "free_text_formats": service.judge is not None}
 
 
 @app.post("/api/v1/tests", summary="Start a test and get its questions (answers withheld)")
 def start_test(body: StartTest, request: Request):
     limit(request, "test")
-    return handle(service.start_test, size=body.size, model_name=body.model_name, mode="api_upload")
+    return handle(service.start_test, size=body.size, model_name=body.model_name, mode="api_upload",
+                  fmt=body.format, seed=body.seed)
 
 
 @app.post("/api/v1/tests/{test_id}/answers", summary="Submit answers and get the report card")
@@ -118,6 +147,19 @@ def submit(test_id: str, body: Submit, request: Request):
     limit(request, "test")
     return handle(service.submit, test_id, [a.model_dump() for a in body.answers],
                   model_name=body.model_name or None, publish=body.publish)
+
+
+@app.post("/api/v1/tests/{test_id}/replies",
+          summary="Free-text formats: submit full replies; the server grades them and returns the report card")
+async def submit_replies(test_id: str, body: SubmitReplies, request: Request):
+    limit(request, "test")
+    try:
+        return await service.submit_replies(test_id, [r.model_dump() for r in body.replies],
+                                            model_name=body.model_name or None, publish=body.publish)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(400, str(e.args[0]))
 
 
 @app.post("/api/v1/runs", summary="Verified run: AbstainCheck queries your model with your key",
@@ -129,7 +171,9 @@ async def run(body: Run, request: Request):
     async def events():
         async for ev in runner.run(service, body.provider, body.model.strip(), body.api_key.strip(),
                                    size=body.size, publish=body.publish,
-                                   display_name=body.display_name.strip() or None):
+                                   display_name=body.display_name.strip() or None,
+                                   fmt=body.format, system_prompt=body.system_prompt,
+                                   seed=body.seed):
             yield json.dumps(ev) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson",

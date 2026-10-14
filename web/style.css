@@ -87,3 +87,10 @@ tr.you td { background: var(--you); font-weight: 600; }
 .note { background: var(--you); border-radius: 8px; padding: 10px 14px; font-size: .92rem; }
 svg text { fill: var(--muted); font-size: 10px; }
 footer { padding-block: 28px 40px; color: var(--muted); font-size: .85rem; }
+textarea { font: inherit; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); min-width: 0; resize: vertical; }
+.form label.wide { grid-column: 1 / -1; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.tabs button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); padding: 6px 14px; font-weight: 600; }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.miss .reply { white-space: pre-wrap; background: var(--code); border-radius: 8px; padding: 10px 12px; font-size: .88rem; max-height: 22em; overflow: auto; }

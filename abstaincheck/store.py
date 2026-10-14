@@ -41,25 +41,31 @@ class MemoryStore:
 
 
 class FirestoreStore:
+    """Collections are prefixed: the database may be shared with other apps."""
+    PREFIX = "abstaincheck_"
+
     def __init__(self, project=None):
         from google.cloud import firestore
         self.db = firestore.Client(project=project)
 
+    def _c(self, kind):
+        return self.db.collection(self.PREFIX + kind)
+
     def put(self, kind, key, doc):
-        self.db.collection(kind).document(key).set(doc)
+        self._c(kind).document(key).set(doc)
 
     def get(self, kind, key):
-        snap = self.db.collection(kind).document(key).get()
+        snap = self._c(kind).document(key).get()
         return snap.to_dict() if snap.exists else None
 
     def update(self, kind, key, fields):
-        self.db.collection(kind).document(key).update(fields)
+        self._c(kind).document(key).update(fields)
 
     def delete(self, kind, key):
-        self.db.collection(kind).document(key).delete()
+        self._c(kind).document(key).delete()
 
     def published(self):
-        q = self.db.collection("results").where("published", "==", True)
+        q = self._c("results").where("published", "==", True)
         return [d.to_dict() for d in q.stream()]
 
 

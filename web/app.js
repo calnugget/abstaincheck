@@ -31,22 +31,39 @@ function kindTag(tier) {
   const t = { paper: "paper", verified: "verified", self_reported: "self-reported" }[tier] || tier;
   return `<span class="tag ${esc(tier)}">${esc(t)}</span>`;
 }
-async function loadBoard() {
-  const b = await getJSON("/api/v1/leaderboard");
-  $("#boardnote").textContent = b.reading + " Paper rows are the full benchmark; others are the test size shown.";
-  const rows = [...b.reference.map(r => ({ ...r, tier: "paper" })), ...b.entries];
+let board = null, boardFmt = "realistic";
+function drawBoard() {
+  if (!board) return;
+  $("#fmtnote").textContent = board.formats[boardFmt] || "";
+  $("#boardnote").textContent = board.reading;
+  const rows = [...board.reference.map(r => ({ ...r, tier: "paper" })), ...board.entries]
+    .filter(r => (r.format || "standard") === boardFmt);
   rows.sort((a, c) => (c.D ?? -9) - (a.D ?? -9));
-  $("#boardtable tbody").innerHTML = rows.map((r, i) => `<tr>
+  $("#boardtable tbody").innerHTML = rows.length ? rows.map((r, i) => `<tr>
     <td class="num">${i + 1}</td>
     <td>${r.result_id ? `<a href="/r/${esc(r.result_id)}">${esc(r.model)}</a>` : esc(r.model)}</td>
     <td class="num"><b>${num(r.D)}</b></td>
     <td class="num">${r.D_ci95 ? `${num(r.D_ci95[0])} to ${num(r.D_ci95[1])}` : "–"}</td>
     <td class="num">${pct(r.trap_catch_rate)}</td>
+    <td class="num">${pct(r.trap_warned_rate)}</td>
     <td class="num">${pct(r.false_alarm_rate)}</td>
     <td class="num">${r.n_questions}</td>
-    <td>${kindTag(r.tier)}</td></tr>`).join("");
+    <td>${kindTag(r.tier)}</td></tr>`).join("") : `<tr><td colspan="9">No results in this format yet.</td></tr>`;
 }
-loadBoard().catch(e => { $("#boardnote").textContent = "Could not load the leaderboard: " + e.message; });
+document.querySelectorAll("#boardtabs button").forEach(b => b.addEventListener("click", () => {
+  boardFmt = b.dataset.fmt;
+  document.querySelectorAll("#boardtabs button").forEach(x => x.classList.toggle("on", x === b));
+  drawBoard();
+}));
+getJSON("/api/v1/leaderboard").then(b => { board = b; drawBoard(); })
+  .catch(e => { $("#boardnote").textContent = "Could not load the leaderboard: " + e.message; });
+
+// free-text formats need the server's grader; fall back to standard without it
+getJSON("/api/v1/health").then(h => {
+  if (h.free_text_formats) return;
+  $("#format").value = "standard";
+  [...$("#format").options].forEach(o => { if (o.value !== "standard") o.disabled = true; });
+}).catch(() => {});
 
 // --- verified run -----------------------------------------------------------------
 $("#runform").addEventListener("submit", async ev => {
@@ -54,6 +71,7 @@ $("#runform").addEventListener("submit", async ev => {
   const f = new FormData(ev.target);
   const body = Object.fromEntries(f.entries());
   body.publish = f.get("publish") === "on";
+  body.seed = body.seed && /^\d+$/.test(body.seed.trim()) ? Number(body.seed.trim()) : null;
   const btn = $("button", ev.target);
   btn.disabled = true; $("#runerr").hidden = true; $("#progress").hidden = false;
   $("#barfill").style.width = "0"; $("#ptext").textContent = "Checking your key and model…";
@@ -73,6 +91,8 @@ $("#runform").addEventListener("submit", async ev => {
         if (e.type === "progress") {
           $("#barfill").style.width = (100 * e.done / e.total) + "%";
           $("#ptext").textContent = `${e.done} of ${e.total} questions answered`;
+        } else if (e.type === "grading") {
+          $("#ptext").textContent = "All replies in. Grading them…";
         } else if (e.type === "error") {
           throw new Error(e.message);
         } else if (e.type === "done") {
@@ -118,27 +138,34 @@ function renderReport(r) {
   const cmp = r.comparison.rows.map(x => `<tr class="${x.is_you ? "you" : ""}"><td class="num">${x.rank}</td>
      <td>${x.is_you ? esc(r.model_name) + " (this test)" : esc(x.model)}</td><td class="num">${num(x.D)}</td>
      <td class="num">${pct(x.trap_catch_rate)}</td><td class="num">${pct(x.false_alarm_rate)}</td></tr>`).join("");
-  const missed = (r.missed || []).map(m => `<details class="miss"><summary>${m.kind === "trap" ? "Missed trap" : m.your_answer === "FLAG" ? "False alarm" : "Wrong answer"}
-     · ${esc(LABELS[m.category])} · you said <b>${esc(m.your_answer ?? "nothing")}</b>${m.your_confidence != null ? ` at ${pct(m.your_confidence)} confidence` : ""}</summary>
+  const said = m => m.your_answer === "FLAG" ? "refused" : m.your_answer === "INVALID" ? "no clear answer"
+    : m.your_answer == null ? "nothing" : m.your_answer;
+  const missed = (r.missed || []).map(m => `<details class="miss"><summary>${m.kind === "trap" ? (m.warned ? "Missed trap, though it warned" : "Missed trap") : m.your_answer === "FLAG" ? "False alarm" : "Wrong answer"}
+     · ${esc(LABELS[m.category])} · answer <b>${esc(said(m))}</b>${m.your_confidence != null ? ` at ${pct(m.your_confidence)} confidence` : ""}</summary>
      <p>${esc(m.question)}</p><p>${Object.entries(m.choices).map(([k, v]) => `<b>${esc(k)}</b>) ${esc(v)}`).join("<br>")}</p>
-     <p class="why">${m.kind === "trap" ? "Right answer: FLAG. " + esc(m.why || "") : "Right answer: " + esc(m.correct_answer) + "."}
+     ${m.your_reply ? `<p class="small">The reply${m.your_reply.length >= 1500 ? " (first 1,500 characters)" : ""}:</p><div class="reply">${esc(m.your_reply)}</div>` : ""}
+     <p class="why">${m.kind === "trap" ? "Right answer: refuse, because the premise is unsafe. " + esc(m.why || "")
+       : "This question was safe to answer. Its answer key is kept private so the test stays useful."}
      ${(m.sources || []).map(u => ` <a href="${esc(u)}" rel="noopener" target="_blank">source</a>`).join("")}</p></details>`).join("");
   el.innerHTML = `<h2>Report card: ${esc(r.model_name)}</h2>
     <p class="small">${kindTag(r.tier)} ${esc(r.tier_meaning)} ${r.run ? `· ${esc(r.run.provider)} ${esc(r.run.model)}, ${r.run.seconds}s` : ""} · ${r.n_questions} questions · ${new Date(r.created).toLocaleString()}</p>
+    <p class="small"><b>Format:</b> ${esc(r.format_meaning || "")}${r.run && r.run.system_prompt ? ` · custom system prompt (fingerprint ${esc(r.run.system_prompt.fingerprint)})` : ""}</p>
+    ${r.grading_note ? `<p class="small">${esc(r.grading_note)}${r.run && r.run.grader ? ` Grader: ${esc(r.run.grader)}.` : ""}</p>` : ""}
     ${r.withheld ? `<p class="note">${esc(r.withheld)}</p>` : ""}
     <div class="score">
       <div class="stat big"><div class="v">${youD}</div><div class="l">D score · ${esc(ci)}</div></div>
       <div class="stat"><div class="v">${pct(r.trap_catch_rate)}</div><div class="l">traps caught (${r.n_traps})</div></div>
+      ${r.trap_warned_rate != null ? `<div class="stat"><div class="v">${pct(r.trap_warned_rate)}</div><div class="l">traps where it warned but still answered</div></div>` : ""}
       <div class="stat"><div class="v">${pct(r.false_alarm_rate)}</div><div class="l">false alarms on safe questions (${r.n_controls})</div></div>
       <div class="stat"><div class="v">${pct(r.control_accuracy)}</div><div class="l">safe questions answered right</div></div>
-      <div class="stat"><div class="v">${num(r.ece)}</div><div class="l">calibration error (0 is best)</div></div>
+      ${r.ece != null ? `<div class="stat"><div class="v">${num(r.ece)}</div><div class="l">calibration error (0 is best)</div></div>` : ""}
     </div>
     ${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
     <div class="grid2">
       <div class="panel"><h3>By kind of trap</h3>${catRows(r.by_category)}</div>
-      <div class="panel"><h3>Does confidence match being right?</h3>${reliabilitySVG(r.reliability)}
+      ${r.ece != null ? `<div class="panel"><h3>Does confidence match being right?</h3>${reliabilitySVG(r.reliability)}
         <p class="small">Bars on the dashed line mean well calibrated. Bars below it mean overconfident.
-        Average confidence on wrong answers: ${pct(r.mean_confidence_when_wrong)}.</p></div>
+        Average confidence on wrong answers: ${pct(r.mean_confidence_when_wrong)}.</p></div>` : ""}
     </div>
     <h3>Compared with the paper's models on the same questions</h3>
     <div class="scroll"><table><thead><tr><th>#</th><th>Model</th><th>D</th><th>Traps caught</th><th>False alarms</th></tr></thead><tbody>${cmp}</tbody></table></div>
