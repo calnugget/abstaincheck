@@ -207,12 +207,23 @@ def check(body: Check, request: Request):
                   result_id=body.result_id or None, model_name=body.model_name or None)
 
 
-@app.delete("/api/v1/admin/results/{result_id}", include_in_schema=False)
-def admin_delete(result_id: str, request: Request):
+def admin_only(request: Request):
     if not ADMIN_TOKEN or request.headers.get("authorization") != f"Bearer {ADMIN_TOKEN}":
         raise HTTPException(403, "forbidden")
+
+
+@app.delete("/api/v1/admin/results/{result_id}", include_in_schema=False)
+def admin_delete(result_id: str, request: Request):
+    admin_only(request)
     service.store.update("results", result_id, {"published": False})
     return {"unpublished": result_id}
+
+
+@app.get("/api/v1/admin/usage", include_in_schema=False)
+def admin_usage(request: Request, days: int = 30):
+    """Anonymous daily counts (tests started, results, checks, replies graded)."""
+    admin_only(request)
+    return service.usage(min(max(days, 1), 366))
 
 
 # --- web page -----------------------------------------------------------------------
@@ -221,6 +232,16 @@ def admin_delete(result_id: str, request: Request):
 @app.get("/r/{result_id}", include_in_schema=False)
 def index(result_id: str | None = None):
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+def privacy():
+    return FileResponse(WEB / "privacy.html")
+
+
+@app.get("/methods", include_in_schema=False)
+def methods():
+    return FileResponse(WEB / "methods.html")
 
 
 app.mount("/static", StaticFiles(directory=WEB), name="static")

@@ -1,5 +1,7 @@
 """Core operations, shared by the REST API, the MCP server and the web page."""
 import datetime as dt
+import logging
+import os
 import secrets
 
 from . import guidance
@@ -26,6 +28,13 @@ FREE_TEXT_RULES = (
 
 MAX_REPLY_STORED = 2000
 
+# The grader is the one cost the server pays for (in a verified run the user's own key pays
+# for their model). This caps how many replies it grades per UTC day, across all instances.
+DAILY_GRADES = int(os.environ.get("ABSTAINCHECK_DAILY_GRADES", "3000"))
+OVER_BUDGET = ("Today's grading allowance for the free-text formats is used up. It resets at "
+               "midnight UTC. The standard format does not need the grader and still works.")
+log = logging.getLogger("abstaincheck")
+
 TIERS = {
     "verified": "Verified: AbstainCheck sent the questions to the model itself.",
     "self_reported": "Self-reported: answers were submitted by the model or its user, so they cannot be checked.",
@@ -42,10 +51,39 @@ def _clean_name(name):
 
 
 class Service:
-    def __init__(self, store, bank=None, judge=None):
+    def __init__(self, store, bank=None, judge=None, daily_grades=DAILY_GRADES):
         self.store = store
         self.bank = bank or Bank()
         self.judge = judge   # grades free-text replies; None means only the standard format
+        self.daily_grades = daily_grades
+
+    # --- usage: anonymous daily counts, and the grading allowance ---------------------
+    # Only counts are kept: no addresses, model names or keys.
+
+    @staticmethod
+    def _today():
+        return _now().date().isoformat()
+
+    def count(self, **counts):
+        try:
+            return self.store.incr("usage", self._today(), counts)
+        except Exception:   # noqa: BLE001 - counting must never break a test
+            log.exception("usage count failed")
+            return None
+
+    def grades_left(self):
+        used = (self.store.get("usage", self._today()) or {}).get("grades", 0)
+        return max(0, self.daily_grades - used)
+
+    def usage(self, days=30):
+        out = []
+        for i in range(days):
+            day = (_now().date() - dt.timedelta(days=i)).isoformat()
+            doc = self.store.get("usage", day)
+            if doc:
+                out.append({"day": day, **doc})
+        return {"daily_grade_allowance": self.daily_grades, "grades_left_today": self.grades_left(),
+                "days": out}
 
     # --- tests -----------------------------------------------------------------------
 
@@ -57,6 +95,8 @@ class Service:
             raise ValueError("The free-text formats need the server's grader, which is not "
                              "configured here. Use the standard format.")
         items = self.bank.draw(size, seed=seed, panel=free)
+        if free and self.grades_left() < len(items):
+            raise ValueError(OVER_BUDGET)
         handles = new_handles(items)
         test_id = "t_" + secrets.token_urlsafe(12)
         now = _now()
@@ -64,6 +104,7 @@ class Service:
             "id": test_id, "size": size, "mode": mode, "format": fmt,
             "model_name": _clean_name(model_name), "handles": handles, "created": now.isoformat(),
             "expires": (now + dt.timedelta(hours=TEST_TTL_HOURS)).isoformat(), "status": "open"})
+        self.count(**{"tests_" + fmt: 1})
         by_handle = [(h, self.bank.by_id[i]) for h, i in handles.items()]
         if free:
             rules, how = FREE_TEXT_RULES, ("Send every question's handle with your full reply to "
@@ -135,6 +176,7 @@ class Service:
             doc["published"] = False
         self.store.put("results", result_id, doc)
         self.store.update("tests", test_id, {"status": "submitted", "result_id": result_id})
+        self.count(**{f"results_{fmt}_{tier}": 1})
         rep["ignored_handles"] = unknown
         return rep
 
@@ -156,6 +198,10 @@ class Service:
         if not got:
             raise ValueError("None of the handles belong to this test.")
         hs = list(got)
+        n = sum(1 for h in hs if got[h].strip())   # empty replies are not sent to the grader
+        if n > self.grades_left():
+            raise ValueError(OVER_BUDGET)
+        self.count(grades=n)
         grades = await self.judge.grade_many([(self.bank.by_id[hmap[h]], got[h]) for h in hs])
         graded = {}
         for h, g in zip(hs, grades):
@@ -296,6 +342,7 @@ class Service:
 
     def check_question(self, question, category=None, result_id=None, model_name=None):
         prof = self.profile(result_id=result_id, model_name=model_name)
+        self.count(checks=1)
         out = guidance.build(question, category, prof)
         if (result_id or model_name) and not prof:
             out["profile_note"] = ("No test result found for that model yet. Run a self-test "

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy and terms · AbstainCheck</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="wrap top">
+  <a href="/" class="brand"><span class="mark" aria-hidden="true">✓?</span> AbstainCheck</a>
+  <nav>
+    <a href="/#run">Test a model</a>
+    <a href="/#board">Leaderboard</a>
+    <a href="/methods">How it works</a>
+    <a href="/privacy">Privacy</a>
+  </nav>
+</header>
+
+<main class="wrap prose">
+<section>
+<h1>Privacy and terms</h1>
+<p class="lede">Short version: there are no accounts and no cookies, your API key is never kept, and
+nothing you type is used to identify you. The details are below.</p>
+
+<h2>What is kept</h2>
+<ul>
+  <li><b>Tests and results.</b> When you start a test, the server keeps the questions it gave you, the model
+  name you typed, the format and size. When you submit, it keeps the answers, the score, in the realistic and pressure
+  formats the model's replies (cut to 2,000 characters each), and for a verified run the provider, model id, token count and time taken.
+  This is what lets your report link keep working.</li>
+  <li><b>A system prompt you test</b> is not kept. Only a fingerprint (a short code made from it that cannot be
+  turned back into the text) and its length are kept, so two runs with the same prompt can be matched.</li>
+  <li><b>Daily counts</b>: how many tests were started, results submitted, questions checked and replies graded
+  each day. These are plain numbers with nothing attached to them.</li>
+</ul>
+
+<h2>What is never kept</h2>
+<ul>
+  <li><b>Your API key.</b> It is held in memory for the length of one run, used only to call the provider you
+  chose, and then dropped. It is never written to the database, logs or error messages. The code that does
+  this is public, and the tests check it.</li>
+  <li><b>Questions you paste into the question checker.</b> The checklist is built on the server by simple
+  rules, without any AI model, and the question is not saved.</li>
+  <li><b>Who you are.</b> There are no accounts, no sign-in, no cookies, no analytics and no advertising.</li>
+</ul>
+
+<h2>Where data goes</h2>
+<ul>
+  <li><b>Your model's provider.</b> In a verified run, the test questions are sent to the provider you picked,
+  using your key. Their terms apply to that request, and they bill you for it.</li>
+  <li><b>The grader.</b> In the realistic and pressure formats, each reply is sent with its question to a grader
+  model (currently OpenAI's GPT-5.4-mini, through OpenAI's API) to record what the reply recommended. Only the
+  question, its options and the reply are sent: no key, no model name, nothing about you.</li>
+  <li><b>Hosting.</b> The app runs on Google Cloud. Like most hosts, it keeps routine request logs (time, page
+  requested, and your IP address) for up to 30 days to run and protect the service. The server also remembers
+  your IP address in memory for up to an hour to limit how many runs one address can start. Neither is used for
+  anything else.</li>
+</ul>
+
+<h2>Who can see a result</h2>
+<p>Every report has a link with a long random code in it. Anyone you share that link with can open the report,
+including the replies it shows. Nobody can find it otherwise. A result appears on the public leaderboard only
+if you tick <b>Publish</b>, and then the name you gave the model is public.</p>
+
+<h2>Removing something</h2>
+<p>To take a result off the leaderboard or delete it, open an issue at
+<a href="https://github.com/calnugget/abstaincheck/issues">github.com/calnugget/abstaincheck/issues</a>
+with the result's link. Please do not put anything personal in the issue: GitHub issues are public.</p>
+
+<h2>Terms of use</h2>
+<ul>
+  <li><b>Not medical advice.</b> AbstainCheck measures how AI models behave on test questions. Nothing on this
+  site tells you how to treat a patient, and a good score does not mean a model is safe for medical use.</li>
+  <li><b>Do not enter patient information.</b> The questions here are made up. Do not paste real people's
+  health details into the question checker or a system prompt.</li>
+  <li><b>Your provider, your bill.</b> A verified run uses your key and your provider charges you for it.
+  Start with a quick test to see the cost.</li>
+  <li><b>Fair use.</b> Runs are limited per address, and the grader has a daily allowance shared by everyone.
+  When it runs out, the realistic and pressure formats pause until midnight UTC; the standard format keeps
+  working. Do not try to get around these limits.</li>
+  <li><b>Leaderboard entries</b> that are misleading, offensive or that game the test can be removed.</li>
+  <li><b>No warranty.</b> The software is provided as is, under the
+  <a href="https://github.com/calnugget/abstaincheck/blob/main/LICENSE">MIT license</a>. Scores can be wrong:
+  the grader can misread a reply, and small tests give rough numbers.</li>
+</ul>
+<p class="small">Last updated 15 October 2026. If these terms change, this page will say what changed.</p>
+</section>
+</main>
+
+<footer class="wrap">
+  <p>AbstainCheck is a research tool built on the AdverseMed-500 benchmark. It is not medical advice.
+  Code: <a href="https://github.com/calnugget/abstaincheck">github.com/calnugget/abstaincheck</a>.</p>
+</footer>
+</body>
+</html>

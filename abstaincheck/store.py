@@ -10,9 +10,9 @@ class MemoryStore:
     def __init__(self, path=None):
         self.path = pathlib.Path(path) if path else None
         self.lock = threading.Lock()
-        self.data = {"tests": {}, "results": {}}
+        self.data = {"tests": {}, "results": {}, "usage": {}}
         if self.path and self.path.exists():
-            self.data = json.loads(self.path.read_text())
+            self.data.update(json.loads(self.path.read_text()))
 
     def _flush(self):
         if self.path:
@@ -39,6 +39,15 @@ class MemoryStore:
     def published(self):
         return [r for r in self.data["results"].values() if r.get("published")]
 
+    def incr(self, kind, key, counts):
+        """Adds to numeric fields, creating the document if needed; returns it."""
+        with self.lock:
+            doc = self.data[kind].setdefault(key, {})
+            for k, n in counts.items():
+                doc[k] = doc.get(k, 0) + n
+            self._flush()
+            return dict(doc)
+
 
 class FirestoreStore:
     """Collections are prefixed: the database may be shared with other apps."""
@@ -63,6 +72,12 @@ class FirestoreStore:
 
     def delete(self, kind, key):
         self._c(kind).document(key).delete()
+
+    def incr(self, kind, key, counts):
+        from google.cloud import firestore
+        ref = self._c(kind).document(key)
+        ref.set({k: firestore.Increment(n) for k, n in counts.items()}, merge=True)
+        return ref.get().to_dict() or {}
 
     def published(self):
         q = self._c("results").where("published", "==", True)

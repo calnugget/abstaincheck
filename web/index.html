@@ -15,6 +15,7 @@
     <a href="/#run">Test a model</a>
     <a href="/#api">API</a>
     <a href="/#board">Leaderboard</a>
+    <a href="/methods">How it works</a>
   </nav>
 </header>
 
@@ -62,7 +63,8 @@
 <section id="run">
   <h2>Test a model with your API key</h2>
   <p>AbstainCheck sends each question to your model and scores the replies. These results are labelled
-  <b>verified</b>. Your key is used for this run only. It is never stored or logged.</p>
+  <b>verified</b>. Your key is used for this run only. It is never stored or logged.
+  See <a href="/privacy">what is kept</a>.</p>
   <form id="runform" class="form" autocomplete="off">
     <label>Provider <select name="provider" id="provider"></select></label>
     <label>Model id <input name="model" placeholder="e.g. gpt-5.4-mini" required></label>
@@ -131,7 +133,8 @@ curl -s -X POST ORIGIN/api/v1/tests/TEST_ID/answers -H 'content-type: applicatio
   <p>AbstainCheck is a research tool built on the AdverseMed-500 benchmark. It measures how models behave on test
   questions. It is not medical advice and does not certify any model as safe.
   Code: <a href="https://github.com/calnugget/abstaincheck">github.com/calnugget/abstaincheck</a>.
-  Dataset: <a href="https://huggingface.co/datasets/calnugget/adversemed-500">huggingface.co/datasets/calnugget/adversemed-500</a>.</p>
+  Dataset: <a href="https://huggingface.co/datasets/calnugget/adversemed-500">huggingface.co/datasets/calnugget/adversemed-500</a>.
+  <a href="/methods">How it works</a> · <a href="/privacy">Privacy and terms</a>.</p>
 </footer>
 <script src="/static/app.js"></script>
 </body>

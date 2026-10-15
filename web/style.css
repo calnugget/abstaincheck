@@ -94,3 +94,8 @@ textarea { font: inherit; padding: 8px 10px; border-radius: 7px; border: 1px sol
 .tabs button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); padding: 6px 14px; font-weight: 600; }
 .tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .miss .reply { white-space: pre-wrap; background: var(--code); border-radius: 8px; padding: 10px 12px; font-size: .88rem; max-height: 22em; overflow: auto; }
+.prose { max-width: 760px; }
+.prose li { margin-bottom: 6px; }
+.prose h2 { margin-top: 28px; }
+.prose table { border-collapse: collapse; margin: 10px 0; }
+.prose th, .prose td { border-bottom: 1px solid var(--line); padding: 6px 12px 6px 0; text-align: left; }

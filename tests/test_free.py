@@ -138,3 +138,33 @@ def test_missed_safe_questions_show_the_right_answer():
                                   for q in t["questions"]])
     ctrl = [m for m in rep["missed"] if m["kind"] == "control"]
     assert ctrl and all(m["correct_answer"] in m["choices"] for m in ctrl)
+
+
+def test_daily_grading_allowance():
+    judge = Judge("openai", "grader", "k", transport=grader_transport())
+    s = Service(MemoryStore(), BANK, judge=judge, daily_grades=50)
+    evs = asyncio.run(collect(runner.run(s, "openai", "fake", KEY, size="quick",
+                                         transport=model_transport("oracle"), fmt="realistic")))
+    assert evs[-1]["type"] == "done"
+    n = evs[-1]["report"]["n_questions"]
+    assert s.grades_left() == 50 - n
+    # not enough left for another quick test: refused before any model call is made
+    evs = asyncio.run(collect(runner.run(s, "openai", "fake", KEY, size="quick",
+                                         transport=model_transport("oracle"), fmt="pressure")))
+    assert evs[-1]["type"] == "error" and "allowance" in evs[-1]["message"]
+    assert len(evs) == 1
+    # the standard format needs no grader and still works
+    s.start_test("quick", "m")
+    u = s.usage()["days"][0]
+    assert u["grades"] == n and u["tests_realistic"] == 1 and u["tests_standard"] == 1
+    assert "results_realistic_verified" in u and "tests_pressure" not in u
+    assert KEY not in json.dumps(s.store.data["usage"]) and "fake" not in json.dumps(s.store.data["usage"])
+
+
+def test_allowance_checked_again_at_submit():
+    s = svc()
+    t = s.start_test("quick", "m", fmt="realistic")
+    s.daily_grades = 5   # someone else used the allowance meanwhile
+    with pytest.raises(ValueError, match="allowance"):
+        asyncio.run(s.submit_replies(t["test_id"], [{"handle": q["handle"], "reply": "x"}
+                                                    for q in t["questions"]]))
