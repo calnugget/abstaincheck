@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use AbstainCheck, please cite it as below."
+title: "AbstainCheck"
+type: software
+authors:
+  - family-names: Vallamsetty
+    given-names: Dyuthi
+    orcid: "https://orcid.org/0009-0006-4108-3959"
+repository-code: "https://github.com/calnugget/abstaincheck"
+license: MIT
+version: "1.0"
+date-released: "2026-10-16"
+abstract: >-
+  A web app, REST API and MCP server that tests whether an AI model can tell a safe
+  medical question from one with a hidden unsafe premise, in the benchmark's own
+  format and in realistic and pressured free-text formats. Built on AdverseMed-500.
+keywords:
+  - medical AI safety
+  - abstention
+  - LLM evaluation
+  - benchmark
+references:
+  - type: data
+    title: "AdverseMed-500"
+    authors:
+      - family-names: Vallamsetty
+        given-names: Dyuthi
+        orcid: "https://orcid.org/0009-0006-4108-3959"
+    doi: "10.5281/zenodo.21961770"
+    url: "https://huggingface.co/datasets/calnugget/adversemed-500"
