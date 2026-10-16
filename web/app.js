@@ -47,15 +47,69 @@ function drawBoard() {
     <td class="num">${pct(r.trap_catch_rate)}</td>
     <td class="num">${pct(r.trap_warned_rate)}</td>
     <td class="num">${pct(r.false_alarm_rate)}</td>
+    <td class="num">${pct(r.control_accuracy)}</td>
     <td class="num">${r.n_questions}</td>
-    <td>${kindTag(r.tier)}</td></tr>`).join("") : `<tr><td colspan="9">No results in this format yet.</td></tr>`;
+    <td>${kindTag(r.tier)}</td></tr>`).join("") : `<tr><td colspan="10">No results in this format yet.</td></tr>`;
+  const refs = board.reference.filter(r => r.format === boardFmt);
+  const noFA = boardFmt !== "standard" && refs.length && refs.every(r => r.false_alarm_rate === 0);
+  $("#fanote").hidden = !noFA;
+  $("#fanote").textContent = noFA ? "None of the reference models refused a safe question in this format, so here " +
+    "D equals the trap-catch rate. Their errors are answered traps, not over-refusal. \"Safe questions right\" " +
+    "is the share of safe questions where the model chose the correct option." : "";
+}
+
+// --- findings on the landing page, computed from the same reference rows ---------------
+const FMTS = ["standard", "realistic", "pressure"];
+const baseKey = k => String(k || "").replace(/-\d{8}$/, "");
+function range(xs) {
+  const v = xs.filter(x => x != null).map(x => Math.round(x * 100));
+  if (!v.length) return "–";
+  const lo = Math.min(...v), hi = Math.max(...v);
+  return lo === hi ? `${lo}%` : `${lo}% to ${hi}%`;
+}
+function drawFindings() {
+  const models = {};
+  for (const r of board.reference) {
+    const m = models[baseKey(r.key)] ||= { name: null, f: {} };
+    const s = r.format === "standard" ? r.on_panel : r;   // same 240 questions in every format
+    if (!s) continue;
+    m.f[r.format] = { ...s, trap_warned_rate: r.trap_warned_rate, method: r.method };
+    if (r.format !== "standard") m.name = r.model;
+  }
+  const list = Object.values(models).filter(m => FMTS.every(f => m.f[f]));
+  if (!list.length) { $("#findings").hidden = true; return; }
+  list.sort((a, b) => b.f.realistic.trap_catch_rate - a.f.realistic.trap_catch_rate);
+  $("#findchart").innerHTML = list.map(m => `<div class="fm"><div class="fname">${esc(m.name)}</div>
+    ${FMTS.map(f => { const v = m.f[f].trap_catch_rate; return `<div class="frow" title="${esc(board.formats[f] || f)}">
+      <div class="ftrack"><div class="fbar f-${f}" style="width:${Math.max(0, v * 100)}%"></div></div>
+      <span class="fval">${pct(v)}</span></div>`; }).join("")}</div>`).join("");
+  const col = (f, k) => list.map(m => m.f[f][k]);
+  const fa = ["realistic", "pressure"].flatMap(f => col(f, "false_alarm_rate"));
+  $("#findtext").innerHTML = `<ul class="findings">
+    <li>With the paper's prompt, which tells the model that refusing is allowed, the models caught
+      <b>${range(col("standard", "trap_catch_rate"))}</b> of traps.</li>
+    <li>Asked the same questions plainly, they caught <b>${range(col("realistic", "trap_catch_rate"))}</b>.
+      With one sentence of pressure from the asker, <b>${range(col("pressure", "trap_catch_rate"))}</b>.</li>
+    <li>Asked plainly, the models often named the danger and still chose an option: that happened on
+      <b>${range(col("realistic", "trap_warned_rate"))}</b> of traps.</li>
+    <li>${fa.every(x => x === 0) ? "No model refused a safe question when asked plainly or with pressure, so the lower catch rates are not balanced by caution elsewhere." :
+      `False alarms on safe questions when asked plainly or with pressure: ${range(fa)}.`}</li>
+  </ul>
+  <p>A score from the benchmark's own prompt can overstate what users of an app will see. AbstainCheck tests a
+  model the way its users ask, including with your app's own system prompt, so you can measure the gap before they
+  meet it.</p>`;
+  const sc = list.filter(m => m.f.standard.method && m.f.standard.method !== "temperature_0").map(m => m.name);
+  $("#findnote").innerHTML = `One reply per question per model. Plain and pressure replies were graded by a model whose
+    calls matched 80 of 80 hand labels; paper's-prompt answers are from the AdverseMed-500 paper's runs${sc.length ?
+    ` (${esc(sc.join(", "))}: self-consistency over several samples)` : ""}. See <a href="/methods">how it works</a> and the
+    <a href="#board">full leaderboard</a>.`;
 }
 document.querySelectorAll("#boardtabs button").forEach(b => b.addEventListener("click", () => {
   boardFmt = b.dataset.fmt;
   document.querySelectorAll("#boardtabs button").forEach(x => x.classList.toggle("on", x === b));
   drawBoard();
 }));
-getJSON("/api/v1/leaderboard").then(b => { board = b; drawBoard(); })
+getJSON("/api/v1/leaderboard").then(b => { board = b; drawBoard(); drawFindings(); })
   .catch(e => { $("#boardnote").textContent = "Could not load the leaderboard: " + e.message; });
 
 // free-text formats need the server's grader; fall back to standard without it

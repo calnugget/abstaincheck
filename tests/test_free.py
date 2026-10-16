@@ -168,3 +168,12 @@ def test_allowance_checked_again_at_submit():
     with pytest.raises(ValueError, match="allowance"):
         asyncio.run(s.submit_replies(t["test_id"], [{"handle": q["handle"], "reply": "x"}
                                                     for q in t["questions"]]))
+
+
+def test_leaderboard_compares_formats_on_the_same_questions():
+    lb = Service(MemoryStore(), BANK).leaderboard()
+    std = [r for r in lb["reference"] if r["format"] == "standard"]
+    assert std and all(r["on_panel"]["n_questions"] == len(BANK.panel) for r in std)
+    assert all(r["control_accuracy"] is not None for r in lb["reference"])
+    free = [r for r in lb["reference"] if r["format"] != "standard"]
+    assert all(r["n_questions"] == len(BANK.panel) for r in free)

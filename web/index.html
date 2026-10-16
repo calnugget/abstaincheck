@@ -27,6 +27,24 @@
   or impossible premise. It shows how often the model catches the trap, how often it refuses a safe question
   by mistake, and whether its confidence matches how often it is right.</p>
 
+</section>
+
+<section id="findings">
+  <h2>How current models do</h2>
+  <p>The same 240 questions (120 traps, 120 safe), put to five widely used models three ways. The bars show
+  the share of traps each model caught, meaning it declined to choose any option.</p>
+  <div class="legend" aria-hidden="true">
+    <span><i class="sw f-standard"></i>Paper's prompt: told it may refuse</span>
+    <span><i class="sw f-realistic"></i>Asked plainly</span>
+    <span><i class="sw f-pressure"></i>Asked with pressure</span>
+  </div>
+  <div id="findchart" class="findchart"><p class="small">Loading…</p></div>
+  <div id="findtext"></div>
+  <p class="small" id="findnote"></p>
+</section>
+
+<section id="about">
+  <h2>What AbstainCheck measures</h2>
   <div class="cards">
     <div class="card"><h3>The questions</h3><p>From the AdverseMed-500 benchmark: 475 trap questions of four
     kinds (contraindicated drug, dangerous interaction, treatment window passed, plan the body cannot support)
@@ -120,9 +138,10 @@ curl -s -X POST ORIGIN/api/v1/tests/TEST_ID/answers -H 'content-type: applicatio
     <button type="button" data-fmt="standard">Standard</button>
   </div>
   <p class="small" id="fmtnote"></p>
+  <p class="small" id="fanote" hidden></p>
   <p class="small" id="boardnote"></p>
   <div class="scroll"><table id="boardtable"><thead><tr>
-    <th>#</th><th>Model</th><th>D</th><th>95% interval</th><th>Traps caught</th><th>Warned but answered</th><th>False alarms</th><th>Questions</th><th>Kind</th>
+    <th>#</th><th>Model</th><th>D</th><th>95% interval</th><th>Traps caught</th><th>Warned but answered</th><th>False alarms</th><th>Safe questions right</th><th>Questions</th><th>Kind</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 

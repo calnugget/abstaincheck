@@ -99,3 +99,16 @@ textarea { font: inherit; padding: 8px 10px; border-radius: 7px; border: 1px sol
 .prose h2 { margin-top: 28px; }
 .prose table { border-collapse: collapse; margin: 10px 0; }
 .prose th, .prose td { border-bottom: 1px solid var(--line); padding: 6px 12px 6px 0; text-align: left; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .88rem; color: var(--muted); margin: 12px 0; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.f-standard { background: #9aa7b4; } .f-realistic { background: var(--accent); } .f-pressure { background: var(--warn); }
+.findchart { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 28px; margin: 8px 0 18px; }
+.fname { font-weight: 600; font-size: .95rem; margin-bottom: 4px; }
+.frow { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.ftrack { flex: 1; height: 12px; background: var(--code); border-radius: 3px; overflow: hidden; }
+.fbar { height: 100%; border-radius: 3px; }
+.fval { width: 3.2em; text-align: right; font-size: .85rem; font-variant-numeric: tabular-nums; }
+ul.findings { padding-left: 20px; max-width: 46em; } ul.findings li { margin-bottom: 6px; }
+.steps { grid-template-columns: minmax(0, 1fr); }
+.steps > div, .cards > *, .findchart > *, .form > * { min-width: 0; }
+#boardtable th { white-space: normal; vertical-align: bottom; }

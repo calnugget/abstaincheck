@@ -287,12 +287,20 @@ class Service:
             pool = self.bank.full_set() if fmt == "standard" else self.bank.panel
             for key, b in self._baselines(fmt).items():
                 r = score(pool, b["answers"])
-                ref.append({"model": b["name"], "format": fmt, "D": r["D"], "D_ci95": r["D_ci95"],
-                            "trap_catch_rate": r["trap_catch_rate"],
-                            "false_alarm_rate": r["false_alarm_rate"],
-                            "trap_warned_rate": r["trap_warned_rate"], "ece": r["ece"],
-                            "n_questions": r["n_questions"], "tier": "paper",
-                            "method": b.get("method", "temperature_0")})
+                row = {"model": b["name"], "key": key, "format": fmt, "D": r["D"], "D_ci95": r["D_ci95"],
+                       "trap_catch_rate": r["trap_catch_rate"],
+                       "false_alarm_rate": r["false_alarm_rate"],
+                       "control_accuracy": r["control_accuracy"],
+                       "trap_warned_rate": r["trap_warned_rate"], "ece": r["ece"],
+                       "n_questions": r["n_questions"], "tier": "paper",
+                       "method": b.get("method", "temperature_0")}
+                if fmt == "standard":
+                    # the same model on the 240-question panel the free-text formats use, so
+                    # the three formats can be compared on identical questions
+                    p = score(self.bank.panel, b["answers"])
+                    row["on_panel"] = {k: p[k] for k in ("D", "trap_catch_rate", "false_alarm_rate",
+                                                         "control_accuracy", "n_questions")}
+                ref.append(row)
         ref.sort(key=lambda r: -(r["D"] if r["D"] is not None else -9))
         entries = []
         for d in self.store.published():
@@ -301,6 +309,7 @@ class Service:
                             "mode": d["mode"], "format": d.get("format", "standard"),
                             "size": d["size"], "created": d["created"],
                             "trap_warned_rate": s.get("trap_warned_rate"),
+                            "control_accuracy": s.get("control_accuracy"),
                             **{k: s[k] for k in ("D", "D_ci95", "trap_catch_rate",
                                                  "false_alarm_rate", "ece", "n_questions")}})
         entries.sort(key=lambda r: (r["tier"] != "verified", -(r["D"] or -9)))
